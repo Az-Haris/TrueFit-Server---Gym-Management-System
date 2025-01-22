@@ -29,6 +29,7 @@ async function run() {
         const userCollection = database.collection('Users');
         const subscriberCollection = database.collection('Subscribers');
         const forumCollection = database.collection("Forums");
+        const classCollection = database.collection("Classes")
 
         // -------------- User Related APIs -----------------------------
 
@@ -188,32 +189,77 @@ async function run() {
         });
 
         // API to handle upvotes
-app.patch('/forum/upvote/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        const result = await forumCollection.updateOne(
-            { _id: new ObjectId(id) },
-            { $inc: { upvotes: 1 } } // Increment upvotes by 1
-        );
-        res.status(200).json({ message: "Upvote successful", result });
-    } catch (error) {
-        res.status(500).json({ message: "Error upvoting", error: error.message });
-    }
-});
+        app.patch('/forum/upvote/:id', async (req, res) => {
+            const { id } = req.params;
+            try {
+                const result = await forumCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $inc: { upvotes: 1 } } // Increment upvotes by 1
+                );
+                res.status(200).json({ message: "Upvote successful", result });
+            } catch (error) {
+                res.status(500).json({ message: "Error upvoting", error: error.message });
+            }
+        });
 
-// API to handle downvotes
-app.patch('/forum/downvote/:id', async (req, res) => {
-    const { id } = req.params;
-    try {
-        const result = await forumCollection.updateOne(
-            { _id: new ObjectId(id) },
-            { $inc: { downvotes: 1 } } // Increment downvotes by 1
-        );
-        res.status(200).json({ message: "Downvote successful", result });
-    } catch (error) {
-        res.status(500).json({ message: "Error downvoting", error: error.message });
-    }
-});
+        // API to handle downvotes
+        app.patch('/forum/downvote/:id', async (req, res) => {
+            const { id } = req.params;
+            try {
+                const result = await forumCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $inc: { downvotes: 1 } } // Increment downvotes by 1
+                );
+                res.status(200).json({ message: "Downvote successful", result });
+            } catch (error) {
+                res.status(500).json({ message: "Error downvoting", error: error.message });
+            }
+        });
+
+
+
+
+        // --------------- Class Related Apis -----------------
+        app.post('/classes', async (req, res) => {
+            const classData = req.body;
+            const result = await classCollection.insertOne(classData)
+            res.send(result)
+        })
+
+        app.get('/classes', async (req, res) => {
+            try {
+                const { page = 1, limit = 6, search = '' } = req.query;
+
+                // Parse page and limit as integers
+                const pageInt = parseInt(page);
+                const limitInt = parseInt(limit);
+
+                // Search filter
+                const searchFilter = search
+                    ? { className: { $regex: search, $options: 'i' } } // Case-insensitive search
+                    : {};
+
+                // Calculate total count for pagination
+                const totalCount = await classCollection.countDocuments(searchFilter);
+
+                // Fetch paginated and filtered data
+                const classes = await classCollection
+                    .find(searchFilter)
+                    .skip((pageInt - 1) * limitInt) // Skip documents for pagination
+                    .limit(limitInt) // Limit the number of documents
+                    .toArray();
+
+                // Response
+                res.json({
+                    classes,
+                    totalPages: Math.ceil(totalCount / limitInt),
+                    currentPage: pageInt,
+                });
+            } catch (error) {
+                console.error('Error fetching classes:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
 
 
 
