@@ -11,7 +11,7 @@ app.use(express.json())
 
 
 
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = process.env.DB_URI;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -27,6 +27,8 @@ async function run() {
     try {
         const database = client.db('TrueFit');
         const userCollection = database.collection('Users');
+        const subscriberCollection = database.collection('Subscribers');
+        const forumCollection = database.collection("Forums");
 
         // -------------- User Related APIs -----------------------------
 
@@ -119,6 +121,101 @@ async function run() {
             const result = await userCollection.findOne({ email })
             res.send({ role: result.role })
         })
+
+
+
+        // ------------ Subscriber Related Api ---------------------
+
+        app.post('/subscribers', async (req, res) => {
+            const data = req.body;
+            const result = await subscriberCollection.insertOne(data);
+            res.send(result);
+        })
+
+        app.get("/subscribers", async (req, res) => {
+            const result = await subscriberCollection.find().toArray();
+            res.send(result)
+        })
+
+
+
+        // -------------- Get All Trainers Profile ---------------
+        app.get('/trainers', async (req, res) => {
+            const result = await userCollection.find({ role: 'trainer' }).toArray()
+            res.send(result)
+        })
+
+        // Delete Trainer by Admin
+        app.patch('/trainers/:id', async (req, res) => {
+            const id = req.params.id;
+            const result = await userCollection.updateOne({ _id: new ObjectId(id) }, { $set: { role: 'member' } })
+            res.send(result)
+        })
+
+
+
+
+        // -------------- Forum Related Apis ----------------
+        app.post('/forum', async (req, res) => {
+            const forumData = req.body;
+            const result = await forumCollection.insertOne(forumData)
+            res.send(result)
+        })
+
+        app.get('/forum', async (req, res) => {
+            const page = parseInt(req.query.page) || 1; // Default to page 1 if no page is provided
+            const limit = 6; // Posts per page
+            const skip = (page - 1) * limit; // Calculate the number of documents to skip
+
+            try {
+                const totalPosts = await forumCollection.countDocuments(); // Total number of posts
+                const result = await forumCollection
+                    .find()
+                    .sort({ postedDate: -1 }) // Sort by `postedDate` in descending order (latest first)
+                    .skip(skip) // Skip documents for pagination
+                    .limit(limit) // Limit the number of documents per page
+                    .toArray();
+
+                res.status(200).send({
+                    totalPosts,
+                    currentPage: page,
+                    totalPages: Math.ceil(totalPosts / limit),
+                    posts: result,
+                });
+            } catch (error) {
+                res.status(500).send({ message: "Error retrieving forums", error: error.message });
+            }
+        });
+
+        // API to handle upvotes
+app.patch('/forum/upvote/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await forumCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $inc: { upvotes: 1 } } // Increment upvotes by 1
+        );
+        res.status(200).json({ message: "Upvote successful", result });
+    } catch (error) {
+        res.status(500).json({ message: "Error upvoting", error: error.message });
+    }
+});
+
+// API to handle downvotes
+app.patch('/forum/downvote/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await forumCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $inc: { downvotes: 1 } } // Increment downvotes by 1
+        );
+        res.status(200).json({ message: "Downvote successful", result });
+    } catch (error) {
+        res.status(500).json({ message: "Error downvoting", error: error.message });
+    }
+});
+
+
 
 
 
