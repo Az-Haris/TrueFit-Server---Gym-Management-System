@@ -29,7 +29,8 @@ async function run() {
         const userCollection = database.collection('Users');
         const subscriberCollection = database.collection('Subscribers');
         const forumCollection = database.collection("Forums");
-        const classCollection = database.collection("Classes")
+        const classCollection = database.collection("Classes");
+        const applicationCollection = database.collection("Applications");
 
         // -------------- User Related APIs -----------------------------
 
@@ -261,6 +262,77 @@ async function run() {
             }
         });
 
+
+
+
+        // -------------- Trainer Application Apis --------------
+        app.post('/apply', async (req, res) => {
+            const applicantData = req.body;
+            const processedData = { ...applicantData, slots: 10, status: "pending", appliedAt: new Date(), adminFeedback: null, }
+            const result = await applicationCollection.insertOne(processedData)
+            res.send(result)
+        })
+
+        // Get All applications for admin dashboard
+        app.get('/applications', async (req, res) => {
+            const result = await applicationCollection.find({ status: 'pending' }).toArray()
+            res.send(result)
+        })
+
+        // check for applicant
+        app.get('/application/:email', async (req, res) => {
+            const email = req.params.email;
+            const result = await applicationCollection.findOne({ userEmail: email })
+            res.send(result)
+        })
+
+        // confirm application
+        app.patch('/confirm/:email', async (req, res) => {
+            const userEmail = req.params.email;
+            const application = await applicationCollection.findOne({ userEmail })
+
+            const { fullName, photoURL, age, aboutInfo, experience, skills, availableDays, availableTime, slots } = application;
+
+            const updateTrainer = await userCollection.updateOne({ email: userEmail },
+                {
+                    $set: {
+                        photoURL, displayName: fullName, age, aboutInfo, experience, skills, availableDays, availableTime, slots, role: 'trainer'
+                    }
+                }
+            )
+
+            if (updateTrainer.modifiedCount > 0) {
+                await applicationCollection.deleteOne({ userEmail })
+                return res.status(200).json({ message: 'Application approved and user updated successfully.' })
+            } else {
+                return res.status(404).json({ message: 'User not found.' });
+            }
+        })
+
+        // Reject application
+        app.patch('/reject/:email', async (req, res) => {
+            const userEmail = req.params.email;
+            const { adminFeedback } = req.body;
+
+            const application = await applicationCollection.findOne({ userEmail })
+
+            const { fullName, photoURL, age, aboutInfo, experience, skills, availableDays, availableTime, slots } = application;
+
+            const result = await userCollection.updateOne({ email: userEmail }, {
+                $set: {
+                    displayName: fullName,
+                    age, photoURL,
+                    adminFeedback,
+                }
+            })
+
+            if (result.modifiedCount > 0) {
+                await applicationCollection.deleteOne({ userEmail })
+                return res.status(200).json({ message: 'Application rejected successfully.' })
+            } else {
+                return res.status(404).json({ message: 'User not found.' });
+            }
+        })
 
 
 
