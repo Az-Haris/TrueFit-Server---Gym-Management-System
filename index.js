@@ -147,6 +147,13 @@ async function run() {
             res.send(result)
         })
 
+        // get specific trainer
+        app.get('/trainers/:id', async (req, res) => {
+            const id = req.params.id;
+            const result = await userCollection.findOne({ _id: new ObjectId(id) })
+            res.send(result)
+        })
+
         // Delete Trainer by Admin
         app.patch('/trainers/:id', async (req, res) => {
             const id = req.params.id;
