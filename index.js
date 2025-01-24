@@ -31,6 +31,7 @@ async function run() {
         const forumCollection = database.collection("Forums");
         const classCollection = database.collection("Classes");
         const applicationCollection = database.collection("Applications");
+        const slotCollection = database.collection('Slots')
 
         // -------------- User Related APIs -----------------------------
 
@@ -269,6 +270,12 @@ async function run() {
             }
         });
 
+        // get all classes
+        app.get('/all-classes', async(req, res)=>{
+            const result = await classCollection.find().toArray()
+            res.send(result)
+        })
+
 
 
 
@@ -303,7 +310,7 @@ async function run() {
             const updateTrainer = await userCollection.updateOne({ email: userEmail },
                 {
                     $set: {
-                        photoURL, displayName: fullName, age, aboutInfo, experience, skills, availableDays, availableTime, slots, role: 'trainer'
+                        photoURL, fullName, age, aboutInfo, experience, skills, availableDays, availableTime, slots, role: 'trainer'
                     }
                 }
             )
@@ -341,6 +348,21 @@ async function run() {
             }
         })
 
+
+
+
+        // ------------ Slots Related Apis ---------------
+        app.post('/add-slot', async(req, res)=>{
+            const slotData = req.body;
+            const result = await slotCollection.insertOne(slotData)
+            res.send(result)
+        })
+
+        app.get('/slots/:id', async(req, res)=>{
+            const trainerId = req.params.id;
+            const result = await slotCollection.find({trainerId}).toArray()
+            res.send(result)
+        })
 
 
 
