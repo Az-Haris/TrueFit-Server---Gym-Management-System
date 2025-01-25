@@ -2,6 +2,7 @@ require('dotenv').config()
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken')
+const Stripe = require('stripe');
 const port = process.env.PORT || 5000
 const app = express();
 
@@ -9,7 +10,8 @@ app.use(cors())
 app.use(express.json())
 
 
-
+// intialize stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = process.env.DB_URI;
@@ -32,6 +34,8 @@ async function run() {
         const classCollection = database.collection("Classes");
         const applicationCollection = database.collection("Applications");
         const slotCollection = database.collection('Slots')
+        const paymentCollection = database.collection("Payments")
+        const reviewCollection = database.collection('Reviews')
 
         // -------------- User Related APIs -----------------------------
 
@@ -271,7 +275,7 @@ async function run() {
         });
 
         // get all classes
-        app.get('/all-classes', async(req, res)=>{
+        app.get('/all-classes', async (req, res) => {
             const result = await classCollection.find().toArray()
             res.send(result)
         })
@@ -282,8 +286,10 @@ async function run() {
         // -------------- Trainer Application Apis --------------
         app.post('/apply', async (req, res) => {
             const applicantData = req.body;
+            const {userEmail} = applicantData;
             const processedData = { ...applicantData, slots: 10, status: "pending", appliedAt: new Date(), adminFeedback: null, }
             const result = await applicationCollection.insertOne(processedData)
+            await userCollection.updateOne({email: userEmail}, {$set: {status: 'pending'}})
             res.send(result)
         })
 
@@ -305,12 +311,12 @@ async function run() {
             const userEmail = req.params.email;
             const application = await applicationCollection.findOne({ userEmail })
 
-            const { fullName, photoURL, age, aboutInfo, experience, skills, availableDays, availableTime, slots } = application;
+            const { fullName, photoURL, age, aboutInfo, experience, skills, availableDays, availableTime, linkedin, instagram, slots } = application;
 
             const updateTrainer = await userCollection.updateOne({ email: userEmail },
                 {
                     $set: {
-                        photoURL, fullName, age, aboutInfo, experience, skills, availableDays, availableTime, slots, role: 'trainer'
+                        photoURL, fullName, age, aboutInfo, linkedin, instagram, experience, skills, availableDays, availableTime, slots, role: 'trainer', status: 'approved',
                     }
                 }
             )
@@ -336,6 +342,7 @@ async function run() {
                 $set: {
                     displayName: fullName,
                     age, photoURL,
+                    status: 'rejected',
                     adminFeedback,
                 }
             })
@@ -352,16 +359,122 @@ async function run() {
 
 
         // ------------ Slots Related Apis ---------------
-        app.post('/add-slot', async(req, res)=>{
+        app.post('/add-slot', async (req, res) => {
             const slotData = req.body;
+            const {selectedClasses} = slotData;
+
+            const classesId = selectedClasses.map(selectedClass=> selectedClass.value);
+
+            const trainerId = slotData.trainerId;
+            
             const result = await slotCollection.insertOne(slotData)
+            if (result.insertedId) {
+                const updateClass = await classCollection.updateMany({_id: {$in: classesId.map(classId=>new ObjectId(classId))}}, {
+                    $addToSet: {trainerId: trainerId}
+                })
+                res.send(updateClass)
+            }
+            
+        })
+
+        app.get('/slots/:id', async (req, res) => {
+            const trainerId = req.params.id;
+            const result = await slotCollection.find({ trainerId }).toArray()
             res.send(result)
         })
 
-        app.get('/slots/:id', async(req, res)=>{
-            const trainerId = req.params.id;
-            const result = await slotCollection.find({trainerId}).toArray()
+        app.get('/slot/:slotId', async (req, res) => {
+            const slotId = req.params.slotId;
+            const result = await slotCollection.findOne({ _id: new ObjectId(slotId) })
             res.send(result)
+        })
+
+
+
+        // -------------- Paymet related apis ----------------
+        // API to create payment intent
+        app.post('/api/create-payment-intent', async (req, res) => {
+            try {
+                const { amount } = req.body;
+
+                const paymentIntent = await stripe.paymentIntents.create({
+                    amount: amount,
+                    currency: 'usd'
+                });
+
+                res.send({ clientSecret: paymentIntent.client_secret });
+            } catch (err) {
+                console.error("Error creating payment intent", err)
+                res.status(500).send({ error: "Internal Server Error" })
+            }
+        })
+
+        // Save payment info
+        app.post('/api/save-payment-info', async (req, res) => {
+            try {
+                const { trainerName, slotName, packageName, price, classesId, userName, userEmail, paymentId, slotId, trainerId } = req.body;
+
+
+                // Save payment information in the database
+                const paymentInfo = {
+                    paymentId,
+                    trainerName,
+                    slotName,
+                    slotId,
+                    trainerId,
+                    packageName,
+                    price,
+                    classesId,
+                    userName,
+                    userEmail,
+                    date: new Date(),
+                };
+
+                await paymentCollection.insertOne(paymentInfo);
+
+                // Update booking count for the class
+                await classCollection.updateMany(
+                    { _id: {$in: classesId.map(classId =>new ObjectId(classId))} },
+                    { $inc: { bookings: 1 } }
+                );
+
+                await userCollection.updateOne({ _id: new ObjectId(trainerId) }, {
+                    $inc: { slots: -1 }
+                })
+
+                await userCollection.updateOne({ email: userEmail}, {
+                    $set: { subscription: packageName }
+                })
+
+                res.send({ message: "Payment information saved successfully." });
+            } catch (err) {
+                console.error("Error saving payment info:", err);
+                res.status(500).send({ error: "Internal Server Error" });
+            }
+        });
+
+        // Get booking info
+        app.get('/bookings/:email', async(req, res)=>{
+            const userEmail = req.params.email;
+            const bookingResult = await paymentCollection.findOne({userEmail})
+            const slotResult = await slotCollection.findOne({_id: new ObjectId(bookingResult.slotId)})
+            const trainerResult = await userCollection.findOne({_id: new ObjectId(bookingResult.trainerId)})
+
+            const classesId = bookingResult.classesId
+            const classResult = await classCollection.find({_id: {$in: classesId.map(classId=>new ObjectId(classId))}}).toArray()
+            res.send({bookingResult, slotResult, trainerResult, classResult})
+        })
+
+
+
+
+
+
+        // ------------- Review Related APIs ---------------
+        app.post('/reviews', async(req, res)=>{
+            const reviewData = req.body;
+            const result = await reviewCollection.insertOne(reviewData)
+            res.send(result);
         })
 
 
