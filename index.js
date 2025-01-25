@@ -166,6 +166,15 @@ async function run() {
             res.send(result)
         })
 
+        // get top 6 trainer
+        app.get('/top-trainers', async (req, res) => {
+            const result = await userCollection.find({ role: 'trainer' })
+            .limit(6)
+            .sort({ slots: 1 })
+            .toArray()
+            res.send(result)
+        })
+
 
 
 
@@ -200,6 +209,11 @@ async function run() {
                 res.status(500).send({ message: "Error retrieving forums", error: error.message });
             }
         });
+
+        app.get('/trainer-forum', async(req, res)=>{
+            const result = await forumCollection.find({authorType:'trainer'}).toArray()
+            res.send(result)
+        })
 
         // API to handle upvotes
         app.patch('/forum/upvote/:id', async (req, res) => {
@@ -273,6 +287,27 @@ async function run() {
                 res.status(500).json({ error: 'Internal server error' });
             }
         });
+
+        // get top booking 6 class
+        app.get('/top-classes', async (req, res) => {
+            try {
+                const limit = 6;
+
+                // Fetch paginated and filtered data
+                const classes = await classCollection
+                    .find()
+                    .sort({ bookings: -1 })
+                    .limit(limit)
+                    .toArray();
+
+                // Response
+                res.send(classes);
+            } catch (error) {
+                console.error('Error fetching classes:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
 
         // get all classes
         app.get('/all-classes', async (req, res) => {
@@ -383,6 +418,12 @@ async function run() {
             res.send(result)
         })
 
+        app.delete('/slots/:id', async (req, res) => {
+            const slotId = req.params.id;
+            const result = await slotCollection.deleteOne({ _id: new ObjectId(slotId) })
+            res.send(result)
+        })
+
         app.get('/slot/:slotId', async (req, res) => {
             const slotId = req.params.slotId;
             const result = await slotCollection.findOne({ _id: new ObjectId(slotId) })
@@ -475,6 +516,11 @@ async function run() {
             const reviewData = req.body;
             const result = await reviewCollection.insertOne(reviewData)
             res.send(result);
+        })
+
+        app.get('/reviews', async(req, res)=>{
+            const result = await reviewCollection.find().toArray()
+            res.send(result)
         })
 
 
