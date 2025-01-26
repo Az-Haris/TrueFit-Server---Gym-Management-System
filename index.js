@@ -37,6 +37,7 @@ async function run() {
         const paymentCollection = database.collection("Payments")
         const reviewCollection = database.collection('Reviews')
 
+
         // -------------- User Related APIs -----------------------------
 
         // API to Save User Data
@@ -147,6 +148,7 @@ async function run() {
 
 
         // -------------- Get All Trainers Profile ---------------
+
         app.get('/trainers', async (req, res) => {
             const result = await userCollection.find({ role: 'trainer' }).toArray()
             res.send(result)
@@ -169,9 +171,9 @@ async function run() {
         // get top 6 trainer
         app.get('/top-trainers', async (req, res) => {
             const result = await userCollection.find({ role: 'trainer' })
-            .limit(6)
-            .sort({ slots: 1 })
-            .toArray()
+                .limit(6)
+                .sort({ slots: 1 })
+                .toArray()
             res.send(result)
         })
 
@@ -179,6 +181,7 @@ async function run() {
 
 
         // -------------- Forum Related Apis ----------------
+
         app.post('/forum', async (req, res) => {
             const forumData = req.body;
             const result = await forumCollection.insertOne(forumData)
@@ -210,8 +213,8 @@ async function run() {
             }
         });
 
-        app.get('/trainer-forum', async(req, res)=>{
-            const result = await forumCollection.find({authorType:'trainer'}).toArray()
+        app.get('/trainer-forum', async (req, res) => {
+            const result = await forumCollection.find({ authorType: 'trainer' }).toArray()
             res.send(result)
         })
 
@@ -247,6 +250,7 @@ async function run() {
 
 
         // --------------- Class Related Apis -----------------
+
         app.post('/classes', async (req, res) => {
             const classData = req.body;
             const result = await classCollection.insertOne(classData)
@@ -319,12 +323,13 @@ async function run() {
 
 
         // -------------- Trainer Application Apis --------------
+
         app.post('/apply', async (req, res) => {
             const applicantData = req.body;
-            const {userEmail} = applicantData;
+            const { userEmail } = applicantData;
             const processedData = { ...applicantData, slots: 10, status: "pending", appliedAt: new Date(), adminFeedback: null, }
             const result = await applicationCollection.insertOne(processedData)
-            await userCollection.updateOne({email: userEmail}, {$set: {status: 'pending'}})
+            await userCollection.updateOne({ email: userEmail }, { $set: { status: 'pending' } })
             res.send(result)
         })
 
@@ -394,22 +399,23 @@ async function run() {
 
 
         // ------------ Slots Related Apis ---------------
+
         app.post('/add-slot', async (req, res) => {
             const slotData = req.body;
-            const {selectedClasses} = slotData;
+            const { selectedClasses } = slotData;
 
-            const classesId = selectedClasses.map(selectedClass=> selectedClass.value);
+            const classesId = selectedClasses.map(selectedClass => selectedClass.value);
 
             const trainerId = slotData.trainerId;
-            
+
             const result = await slotCollection.insertOne(slotData)
             if (result.insertedId) {
-                const updateClass = await classCollection.updateMany({_id: {$in: classesId.map(classId=>new ObjectId(classId))}}, {
-                    $addToSet: {trainerId: trainerId}
+                const updateClass = await classCollection.updateMany({ _id: { $in: classesId.map(classId => new ObjectId(classId)) } }, {
+                    $addToSet: { trainerId: trainerId }
                 })
                 res.send(updateClass)
             }
-            
+
         })
 
         app.get('/slots/:id', async (req, res) => {
@@ -433,6 +439,7 @@ async function run() {
 
 
         // -------------- Paymet related apis ----------------
+
         // API to create payment intent
         app.post('/api/create-payment-intent', async (req, res) => {
             try {
@@ -475,7 +482,7 @@ async function run() {
 
                 // Update booking count for the class
                 await classCollection.updateMany(
-                    { _id: {$in: classesId.map(classId =>new ObjectId(classId))} },
+                    { _id: { $in: classesId.map(classId => new ObjectId(classId)) } },
                     { $inc: { bookings: 1 } }
                 );
 
@@ -483,7 +490,7 @@ async function run() {
                     $inc: { slots: -1 }
                 })
 
-                await userCollection.updateOne({ email: userEmail}, {
+                await userCollection.updateOne({ email: userEmail }, {
                     $set: { subscription: packageName }
                 })
 
@@ -495,16 +502,54 @@ async function run() {
         });
 
         // Get booking info
-        app.get('/bookings/:email', async(req, res)=>{
+        app.get('/bookings/:email', async (req, res) => {
             const userEmail = req.params.email;
-            const bookingResult = await paymentCollection.findOne({userEmail})
-            const slotResult = await slotCollection.findOne({_id: new ObjectId(bookingResult.slotId)})
-            const trainerResult = await userCollection.findOne({_id: new ObjectId(bookingResult.trainerId)})
+            const bookingResult = await paymentCollection.findOne({ userEmail })
+            const slotResult = await slotCollection.findOne({ _id: new ObjectId(bookingResult.slotId) })
+            const trainerResult = await userCollection.findOne({ _id: new ObjectId(bookingResult.trainerId) })
 
             const classesId = bookingResult.classesId
-            const classResult = await classCollection.find({_id: {$in: classesId.map(classId=>new ObjectId(classId))}}).toArray()
-            res.send({bookingResult, slotResult, trainerResult, classResult})
+            const classResult = await classCollection.find({ _id: { $in: classesId.map(classId => new ObjectId(classId)) } }).toArray()
+            res.send({ bookingResult, slotResult, trainerResult, classResult })
         })
+
+        // Get the latest transactions and total balance for admin home
+        app.get('/financial-overview', async (req, res) => {
+            try {
+                // Fetch the latest 10 transactions
+                const limit = 6;
+                const latestTransactions = await paymentCollection
+                    .find()
+                    .sort({ date: -1 }) // Sort by date in descending order
+                    .limit(limit)
+                    .toArray();
+
+                // Calculate the total balance
+                const totalBalance = await paymentCollection
+                    .aggregate([
+                        {
+                            $group: {
+                                _id: null, // Group all documents
+                                total: { $sum: { $toDouble: "$price" } } // Sum the `price` field (convert to double)
+                            }
+                        }
+                    ])
+                    .toArray();
+
+                // Extract the total balance (default to 0 if no payments found)
+                const balance = totalBalance[0]?.total || 0;
+
+                // Respond with the latest transactions and total balance
+                res.json({
+                    latestTransactions,
+                    totalBalance: balance,
+                });
+            } catch (error) {
+                console.error('Error fetching financial overview:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
 
 
 
@@ -512,16 +557,44 @@ async function run() {
 
 
         // ------------- Review Related APIs ---------------
-        app.post('/reviews', async(req, res)=>{
+
+        app.post('/reviews', async (req, res) => {
             const reviewData = req.body;
             const result = await reviewCollection.insertOne(reviewData)
             res.send(result);
         })
 
-        app.get('/reviews', async(req, res)=>{
+        app.get('/reviews', async (req, res) => {
             const result = await reviewCollection.find().toArray()
             res.send(result)
         })
+
+
+
+
+        // -------------- Subscriber vs Paid Member
+        // Get Subscribers vs Paid Members count
+        app.get('/subscribers-vs-members', async (req, res) => {
+            try {
+                // Count total subscribers
+                const totalSubscribers = await subscriberCollection.countDocuments();
+
+                // Count total paid members (users with a `subscription` field)
+                const totalPaidMembers = await userCollection.countDocuments({
+                    subscription: { $exists: true, $ne: null } // Ensure subscription field exists and is not null
+                });
+
+                // Respond with the counts
+                res.json({
+                    totalSubscribers,
+                    totalPaidMembers,
+                });
+            } catch (error) {
+                console.error('Error fetching subscribers vs members:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
 
 
 
