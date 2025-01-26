@@ -6,6 +6,8 @@ const Stripe = require('stripe');
 const port = process.env.PORT || 5000
 const app = express();
 
+// middleware
+
 app.use(cors())
 app.use(express.json())
 
@@ -36,6 +38,61 @@ async function run() {
         const slotCollection = database.collection('Slots')
         const paymentCollection = database.collection("Payments")
         const reviewCollection = database.collection('Reviews')
+
+
+        // -------------- JWT Related APIs ----------------------
+
+        app.post('/jwt', async (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1m' })
+            res.send({ token })
+        })
+
+
+        // --------------- Middlewares --------------------
+        const verifyToken = (req, res, next) => {
+            // console.log(req.headers.authorization)
+            if (!req.headers.authorization) {
+                return res.status(401).send({ message: 'Unauthorized Access' })
+            }
+            const token = req.headers.authorization.split(' ')[1]
+
+            // verify token
+            jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+                if (error) {
+                    return res.status(401).send({ message: 'Unauthorized Access' })
+                }
+                req.decoded = decoded;
+                next()
+            })
+        }
+
+
+        // Verify Admin
+        const verifyAdmin = async(req, res, next)=>{
+            const email = req.decoded.email;
+            const query = {email: email};
+            const user = await userCollection.findOne(query);
+            const isAdmin = user?.role === 'admin';
+            if(!isAdmin){
+                return res.status(403).send({message: 'Forbidden Access'});
+            }
+            next();
+        }
+
+        // Verify Trainer
+        const verifyTrainer = async(req, res, next)=>{
+            const email = req.decoded.email;
+            const query = {email: email};
+            const user = await userCollection.findOne(query);
+            const isTrainer = user?.role === 'trainer';
+            if(!isTrainer){
+                return res.status(403).send({message: 'Forbidden Access'});
+            }
+            next();
+        }
+
+
 
 
         // -------------- User Related APIs -----------------------------
@@ -108,23 +165,23 @@ async function run() {
         });
 
         //   Get User's all data from db
-        app.get('/users/:email', async (req, res) => {
+        app.get('/users/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const result = await userCollection.findOne({ email })
             res.send(result);
         })
 
         // update user info
-        app.patch("/user/:email", async (req, res) => {
+        app.patch("/user/:email", verifyToken, async (req, res) => {
             const email = req.params.email;
             const updatedInfo = req.body;
-            const result = await userCollection.updateOne({ email }, { $set: updatedInfo })
+            await userCollection.updateOne({ email }, { $set: updatedInfo })
             const user = await userCollection.findOne({ email })
             res.send(user)
         })
 
         // Get user's role
-        app.get('/users/role/:email', async (req, res) => {
+        app.get('/users/role/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const result = await userCollection.findOne({ email })
             res.send({ role: result.role })
@@ -140,7 +197,7 @@ async function run() {
             res.send(result);
         })
 
-        app.get("/subscribers", async (req, res) => {
+        app.get("/subscribers", verifyToken, async (req, res) => {
             const result = await subscriberCollection.find().toArray();
             res.send(result)
         })
@@ -162,7 +219,7 @@ async function run() {
         })
 
         // Delete Trainer by Admin
-        app.patch('/trainers/:id', async (req, res) => {
+        app.patch('/trainers/:id', verifyToken, async (req, res) => {
             const id = req.params.id;
             const result = await userCollection.updateOne({ _id: new ObjectId(id) }, { $set: { role: 'member' } })
             res.send(result)
@@ -182,7 +239,7 @@ async function run() {
 
         // -------------- Forum Related Apis ----------------
 
-        app.post('/forum', async (req, res) => {
+        app.post('/forum', verifyToken, async (req, res) => {
             const forumData = req.body;
             const result = await forumCollection.insertOne(forumData)
             res.send(result)
@@ -213,13 +270,13 @@ async function run() {
             }
         });
 
-        app.get('/trainer-forum', async (req, res) => {
+        app.get('/trainer-forum', verifyToken, verifyTrainer, async (req, res) => {
             const result = await forumCollection.find({ authorType: 'trainer' }).toArray()
             res.send(result)
         })
 
         // API to handle upvotes
-        app.patch('/forum/upvote/:id', async (req, res) => {
+        app.patch('/forum/upvote/:id', verifyToken, async (req, res) => {
             const { id } = req.params;
             try {
                 const result = await forumCollection.updateOne(
@@ -233,7 +290,7 @@ async function run() {
         });
 
         // API to handle downvotes
-        app.patch('/forum/downvote/:id', async (req, res) => {
+        app.patch('/forum/downvote/:id', verifyToken, async (req, res) => {
             const { id } = req.params;
             try {
                 const result = await forumCollection.updateOne(
@@ -251,7 +308,7 @@ async function run() {
 
         // --------------- Class Related Apis -----------------
 
-        app.post('/classes', async (req, res) => {
+        app.post('/classes', verifyToken, async (req, res) => {
             const classData = req.body;
             const result = await classCollection.insertOne(classData)
             res.send(result)
@@ -324,7 +381,7 @@ async function run() {
 
         // -------------- Trainer Application Apis --------------
 
-        app.post('/apply', async (req, res) => {
+        app.post('/apply', verifyToken, async (req, res) => {
             const applicantData = req.body;
             const { userEmail } = applicantData;
             const processedData = { ...applicantData, slots: 10, status: "pending", appliedAt: new Date(), adminFeedback: null, }
@@ -334,20 +391,20 @@ async function run() {
         })
 
         // Get All applications for admin dashboard
-        app.get('/applications', async (req, res) => {
+        app.get('/applications', verifyToken, verifyAdmin, async (req, res) => {
             const result = await applicationCollection.find({ status: 'pending' }).toArray()
             res.send(result)
         })
 
         // check for applicant
-        app.get('/application/:email', async (req, res) => {
+        app.get('/application/:email', verifyToken, async (req, res) => {
             const email = req.params.email;
             const result = await applicationCollection.findOne({ userEmail: email })
             res.send(result)
         })
 
         // confirm application
-        app.patch('/confirm/:email', async (req, res) => {
+        app.patch('/confirm/:email', verifyToken, verifyAdmin, async (req, res) => {
             const userEmail = req.params.email;
             const application = await applicationCollection.findOne({ userEmail })
 
@@ -370,7 +427,7 @@ async function run() {
         })
 
         // Reject application
-        app.patch('/reject/:email', async (req, res) => {
+        app.patch('/reject/:email', verifyToken, verifyAdmin, async (req, res) => {
             const userEmail = req.params.email;
             const { adminFeedback } = req.body;
 
@@ -400,7 +457,7 @@ async function run() {
 
         // ------------ Slots Related Apis ---------------
 
-        app.post('/add-slot', async (req, res) => {
+        app.post('/add-slot', verifyToken, verifyTrainer, async (req, res) => {
             const slotData = req.body;
             const { selectedClasses } = slotData;
 
@@ -424,7 +481,7 @@ async function run() {
             res.send(result)
         })
 
-        app.delete('/slots/:id', async (req, res) => {
+        app.delete('/slots/:id', verifyToken, verifyTrainer, async (req, res) => {
             const slotId = req.params.id;
             const result = await slotCollection.deleteOne({ _id: new ObjectId(slotId) })
             res.send(result)
@@ -441,7 +498,7 @@ async function run() {
         // -------------- Paymet related apis ----------------
 
         // API to create payment intent
-        app.post('/api/create-payment-intent', async (req, res) => {
+        app.post('/api/create-payment-intent', verifyToken, async (req, res) => {
             try {
                 const { amount } = req.body;
 
@@ -502,7 +559,7 @@ async function run() {
         });
 
         // Get booking info
-        app.get('/bookings/:email', async (req, res) => {
+        app.get('/bookings/:email', verifyToken, async (req, res) => {
             const userEmail = req.params.email;
             const bookingResult = await paymentCollection.findOne({ userEmail })
             const slotResult = await slotCollection.findOne({ _id: new ObjectId(bookingResult.slotId) })
@@ -514,7 +571,7 @@ async function run() {
         })
 
         // Get the latest transactions and total balance for admin home
-        app.get('/financial-overview', async (req, res) => {
+        app.get('/financial-overview', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 // Fetch the latest 10 transactions
                 const limit = 6;
@@ -558,7 +615,7 @@ async function run() {
 
         // ------------- Review Related APIs ---------------
 
-        app.post('/reviews', async (req, res) => {
+        app.post('/reviews', verifyToken, async (req, res) => {
             const reviewData = req.body;
             const result = await reviewCollection.insertOne(reviewData)
             res.send(result);
@@ -574,7 +631,7 @@ async function run() {
 
         // -------------- Subscriber vs Paid Member
         // Get Subscribers vs Paid Members count
-        app.get('/subscribers-vs-members', async (req, res) => {
+        app.get('/subscribers-vs-members', verifyToken, verifyAdmin, async (req, res) => {
             try {
                 // Count total subscribers
                 const totalSubscribers = await subscriberCollection.countDocuments();
