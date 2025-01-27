@@ -44,7 +44,7 @@ async function run() {
 
         app.post('/jwt', async (req, res) => {
             const user = req.body;
-            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1m' })
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
             res.send({ token })
         })
 
@@ -165,7 +165,7 @@ async function run() {
         });
 
         //   Get User's all data from db
-        app.get('/users/:email', verifyToken, async (req, res) => {
+        app.get('/users/:email', async (req, res) => {
             const email = req.params.email;
             const result = await userCollection.findOne({ email })
             res.send(result);
@@ -397,7 +397,7 @@ async function run() {
         })
 
         // check for applicant
-        app.get('/application/:email', verifyToken, async (req, res) => {
+        app.get('/application/:email', async (req, res) => {
             const email = req.params.email;
             const result = await applicationCollection.findOne({ userEmail: email })
             res.send(result)
@@ -657,7 +657,7 @@ async function run() {
 
 
 
-        console.log("Successfully connected to MongoDB!");
+        // console.log("Successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
